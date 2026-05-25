@@ -126,11 +126,18 @@ function isValidUrl(value) {
 
     worksheet.eachRow((row, rowNumber) => {
 
+        // Skip header row
         if (rowNumber === 1) return;
 
+        const client = row.getCell(1).value;
+        const url = row.getCell(2).value;
+
+        // Skip completely blank rows
+        if (!client && !url) return;
+
         data.push({
-            Client: row.getCell(1).value,
-            URL: row.getCell(2).value
+            Client: client,
+            URL: url
         });
     });
 
