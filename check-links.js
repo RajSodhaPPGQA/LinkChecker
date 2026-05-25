@@ -40,6 +40,18 @@ let screenshotFolderCreated = false;
 const screenshotFolder = path.join(runFolder, 'screenshots');
 
 // =====================================
+// EXECUTION LOGGING
+// =====================================
+
+const logFilePath = path.join(runFolder, 'execution.log');
+
+function log(...args) {
+    const message = args.join(' ');
+    console.log(...args);
+    fs.appendFileSync(logFilePath, message + '\n');
+}
+
+// =====================================
 // INPUT FILE
 // =====================================
 
@@ -140,7 +152,7 @@ function isValidUrl(value) {
         // Restart browser every 50 URLs
         if (processedCount > 0 && processedCount % 50 === 0) {
 
-            console.log('\nRestarting browser...\n');
+            log('\nRestarting browser...\n');
 
             await browser.close();
 
@@ -168,9 +180,9 @@ function isValidUrl(value) {
 
         const timestamp = new Date().toLocaleString();
 
-        console.log('\n================================');
-        console.log(`Checking: ${client}`);
-        console.log(url);
+        log('\n================================');
+        log(`Checking: ${client}`);
+        log(url);
 
         let context;
 
@@ -213,7 +225,7 @@ function isValidUrl(value) {
 
                 try {
 
-                    console.log(`Attempt ${attempt}`);
+                    log(`Attempt ${attempt}`);
 
                     response = await page.goto(normalizedUrl, {
                         timeout: 60000,
@@ -224,7 +236,7 @@ function isValidUrl(value) {
 
                 } catch (retryErr) {
 
-                    console.log(`Attempt ${attempt} failed`);
+                    log(`Attempt ${attempt} failed`);
 
                     if (attempt === 2) {
 
@@ -252,7 +264,7 @@ function isValidUrl(value) {
 
                 if (await oneTrustButton.isVisible({ timeout: 3000 })) {
 
-                    console.log('OneTrust popup detected');
+                    log('OneTrust popup detected');
 
                     await oneTrustButton.click();
 
@@ -285,7 +297,7 @@ function isValidUrl(value) {
 
                     if (await button.isVisible({ timeout: 2000 })) {
 
-                        console.log('Cookie popup detected');
+                        log('Cookie popup detected');
 
                         await button.click();
 
@@ -315,7 +327,7 @@ function isValidUrl(value) {
                 await page.content()
             ).toLowerCase().replace(/\\s+/g, ' ');
 
-            console.log('Final URL:', finalUrl);
+            log('Final URL:', finalUrl);
 
             // =====================================
             // STATIC FILE DETECTION
@@ -463,7 +475,7 @@ function isValidUrl(value) {
 
                 restrictedCount++;
 
-                console.log('RESTRICTED:', details);
+                log('RESTRICTED:', details);
 
                 if (!screenshotFolderCreated) {
 
@@ -489,18 +501,18 @@ function isValidUrl(value) {
                         fullPage: true
                     });
 
-                    console.log('Screenshot captured');
+                    log('Screenshot captured');
 
                 } catch {
 
-                    console.log('Could not capture screenshot');
+                    log('Could not capture screenshot');
                 }
 
             } else {
 
                 accessibleCount++;
 
-                console.log('ACCESSIBLE');
+                log('ACCESSIBLE');
             }
 
         }
@@ -520,7 +532,7 @@ function isValidUrl(value) {
                 details = err.message || String(err);
             }
 
-            console.log('ERROR:', details);
+            log('ERROR:', details);
 
             if (!screenshotFolderCreated) {
 
@@ -551,12 +563,12 @@ function isValidUrl(value) {
                         timeout: 10000
                     });
 
-                    console.log('Screenshot captured');
+                    log('Screenshot captured');
                 }
 
             } catch {
 
-                console.log('Could not capture screenshot');
+                log('Could not capture screenshot');
             }
         }
 
@@ -599,6 +611,10 @@ function isValidUrl(value) {
 
     const executionSeconds =
         Math.floor((executionDurationMs % 60000) / 1000);
+
+    // Final log message to mark completion in execution.log
+    log('\n================================');
+    log('DONE');
 
     // =====================================
     // CREATE OUTPUT EXCEL
@@ -791,12 +807,10 @@ function isValidUrl(value) {
         path.join(runFolder, excelFileName)
     );
 
-    console.log('\n================================');
-    console.log('DONE');
-    console.log(`Run Folder: ${runFolder}`);
-    console.log(`ACCESSIBLE: ${accessibleCount}`);
-    console.log(`RESTRICTED: ${restrictedCount}`);
-    console.log(`Execution Time: ${executionMinutes}m ${executionSeconds}s`);
-    console.log('================================');
+    log(`Run Folder: ${runFolder}`);
+    log(`ACCESSIBLE: ${accessibleCount}`);
+    log(`RESTRICTED: ${restrictedCount}`);
+    log(`Execution Time: ${executionMinutes}m ${executionSeconds}s`);
+    log('================================');
 
 })();
