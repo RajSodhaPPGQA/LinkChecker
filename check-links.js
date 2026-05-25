@@ -47,8 +47,15 @@ const logFilePath = path.join(runFolder, 'execution.log');
 
 function log(...args) {
     const message = args.join(' ');
-    console.log(...args);
-    fs.appendFileSync(logFilePath, message + '\n');
+    const timestamp = new Date().toLocaleTimeString('en-US', {
+        hour12: true,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+    const timestampedMessage = `[${timestamp}] ${message}`;
+    console.log(timestampedMessage);
+    fs.appendFileSync(logFilePath, timestampedMessage + '\n');
 }
 
 // =====================================
