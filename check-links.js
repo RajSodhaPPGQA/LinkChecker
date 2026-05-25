@@ -9,6 +9,7 @@ const path = require('path');
 
 const executionStartTime = Date.now();
 
+const TOOL_VERSION = '1.0';
 // =====================================
 // TIMESTAMP FOR RUN
 // =====================================
@@ -129,8 +130,22 @@ function isValidUrl(value) {
         // Skip header row
         if (rowNumber === 1) return;
 
-        const client = row.getCell(1).value;
-        const url = row.getCell(2).value;
+        let client = row.getCell(1).value;
+        let url = row.getCell(2).value;
+
+        // Normalize client value (handle hyperlink objects and trim)
+        if (typeof client === 'object' && client !== null) {
+            client = String(client.text || client.hyperlink || '').trim();
+        } else {
+            client = client === undefined || client === null ? '' : String(client).trim();
+        }
+
+        // Normalize URL value (handle hyperlink objects and trim)
+        if (typeof url === 'object' && url !== null) {
+            url = String(url.hyperlink || url.text || '').trim();
+        } else {
+            url = url === undefined || url === null ? '' : String(url).trim();
+        }
 
         // Skip completely blank rows
         if (!client && !url) return;
@@ -177,19 +192,35 @@ function isValidUrl(value) {
 
         processedCount++;
 
-        // Handle Client field
-        const client = String(
-            typeof row.Client === 'object'
-                ? row.Client?.text || 'Unknown'
-                : row.Client || 'Unknown'
-        );
+        // Client and URL values are already normalized when reading the sheet
+        const client = row.Client || 'Unknown';
 
-        // Handle ExcelJS hyperlink objects
-        let url = row.URL;
+        let url = row.URL || '';
 
-        if (typeof url === 'object' && url !== null) {
+        // If URL empty but client present, mark as RESTRICTED -> Empty URL
+        if (!url) {
 
-            url = url.hyperlink || url.text || '';
+            const timestamp = new Date().toLocaleString();
+
+            const status = 'RESTRICTED';
+
+            const details = 'Empty URL';
+
+            restrictedCount++;
+
+            log('RESTRICTED:', details);
+
+            results.push({
+                Timestamp: timestamp,
+                Client: client,
+                URL: url,
+                FinalURL: url,
+                Status: status,
+                Details: details,
+                Screenshot: ''
+            });
+
+            continue;
         }
 
         const timestamp = new Date().toLocaleString();
@@ -626,6 +657,9 @@ function isValidUrl(value) {
     const executionSeconds =
         Math.floor((executionDurationMs % 60000) / 1000);
 
+    const executionStartedString = new Date(executionStartTime).toLocaleString();
+    const executionCompletedString = new Date(executionEndTime).toLocaleString();
+
     // Final log message to mark completion in execution.log
     log('\n================================');
     log('DONE');
@@ -686,6 +720,11 @@ function isValidUrl(value) {
     resultsSheet.views = [
         { state: 'frozen', ySplit: 1 }
     ];
+    // Auto filter for results
+    resultsSheet.autoFilter = {
+        from: 'A1',
+        to: 'G1'
+    };
     
 
     // =====================================
@@ -696,29 +735,43 @@ function isValidUrl(value) {
 
         const row = resultsSheet.addRow(result);
 
-        // ACCESSIBLE / RESTRICTED colors
-        if (result.Status === 'ACCESSIBLE') {
+        // Full-row coloring based on status
+        const accessibleFill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFC6EFCE' }
+        };
 
-            row.getCell('Status').fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'C6EFCE' }
-            };
+        const restrictedFill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFFC7CE' }
+        };
 
-        } else {
+        const fillToUse = result.Status === 'ACCESSIBLE' ? accessibleFill : restrictedFill;
 
-            row.getCell('Status').fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FFC7CE' }
+        row.eachCell(cell => {
+            cell.fill = fillToUse;
+        });
+
+        // Ensure the Status cell remains readable (bold)
+        row.getCell('Status').font = { bold: true };
+
+        // URL hyperlink (use normalized URL if possible)
+        if (result.URL) {
+            row.getCell('URL').value = {
+                text: result.URL,
+                hyperlink: normalizeUrl(result.URL)
             };
         }
 
-        // URL hyperlink
-        row.getCell('URL').value = {
-            text: result.URL,
-            hyperlink: result.URL
-        };
+        // FinalURL hyperlink
+        if (result.FinalURL) {
+            row.getCell('FinalURL').value = {
+                text: result.FinalURL,
+                hyperlink: normalizeUrl(result.FinalURL)
+            };
+        }
 
         // Screenshot hyperlink
         if (result.Screenshot) {
@@ -735,8 +788,13 @@ function isValidUrl(value) {
     // =====================================
 
     summarySheet.addRow([
-        'Execution Timestamp',
-        runTimestamp
+        'Execution Started',
+        executionStartedString
+    ]);
+
+    summarySheet.addRow([
+        'Execution Completed',
+        executionCompletedString
     ]);
 
     summarySheet.addRow([
@@ -758,6 +816,17 @@ function isValidUrl(value) {
         'Execution Time',
         `${executionMinutes}m ${executionSeconds}s`
     ]);
+
+    // Tool version
+    summarySheet.addRow([
+        'Tool Version',
+        TOOL_VERSION
+    ]);
+
+    // Freeze top row of summary for better UX
+    summarySheet.views = [
+        { state: 'frozen', ySplit: 1 }
+    ];
 
     // =====================================
     // FORMAT SUMMARY SHEET
@@ -822,8 +891,15 @@ function isValidUrl(value) {
     );
 
     log(`Run Folder: ${runFolder}`);
+    log('================================');
+    log('EXECUTION COMPLETED');
+    log('================================');
+    log(`Run Folder: ${runFolder}`);
+    log(`Total URLs: ${processedCount}`);
     log(`ACCESSIBLE: ${accessibleCount}`);
     log(`RESTRICTED: ${restrictedCount}`);
+    log(`Execution Started: ${new Date(executionStartTime).toLocaleString()}`);
+    log(`Execution Completed: ${new Date(executionEndTime).toLocaleString()}`);
     log(`Execution Time: ${executionMinutes}m ${executionSeconds}s`);
     log('================================');
 
