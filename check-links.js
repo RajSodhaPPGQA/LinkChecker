@@ -10,7 +10,7 @@ const path = require('path');
 const executionStartTime = Date.now();
 
 const TOOL_VERSION = '1.0';
-const HEADLESS = true;
+const HEADLESS = process.env.HEADLESS === 'true' || process.argv.includes('--headless');
 const RESTART_AFTER = 50;
 const NAVIGATION_TIMEOUT = 60000;
 const PAGE_IDLE_TIMEOUT = 20000;
@@ -170,6 +170,8 @@ function isValidUrl(value) {
     let browser = await chromium.launch({
         headless: HEADLESS
     });
+
+    log(`Browser headless mode: ${HEADLESS}`);
 
     let processedCount = 0;
 
