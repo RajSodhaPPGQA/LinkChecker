@@ -69,20 +69,40 @@
 
 ---
 
+## OPTIONAL: Configure Runtime Settings
+
+If you want to change behavior without editing the script, use `config.json` in the same folder as `check-links.js`.
+
+A default `config.json` will be created automatically if it is missing.
+
+Supported settings include:
+- `inputFile`: input Excel filename (default `urls.xlsx`)
+- `logsFolder`: destination folder for log runs (default `logs`)
+- `outputFilePrefix`: output workbook prefix (default `results`)
+- `timeout`: navigation timeout in milliseconds
+- `retryCount`: number of navigation retries
+- `captureScreenshots`: `true` or `false`
+- `browserRestartThreshold`: restart browser after this many URLs
+- `warnOnHttp`: show warnings for `http://` URLs
+
+---
+
 ## STEP 4: Check Your Results
 
-Results are saved in the **`logs`** folder:
+Results are saved in the **`logs`** folder by default:
 
 ```
 logs/
   └─ 2026-05-26_16-13-02/          ← Latest run with date/time
       ├─ execution.log              ← Detailed log of what happened
-      ├─ results.xlsx               ← Results in Excel format
+      ├─ results_2026-05-26_16-13-02.xlsx ← Results in Excel format
       └─ screenshots/               ← Screenshots of each page
           ├─ Google.png
           ├─ ChatGPT.png
           └─ ... more images ...
 ```
+
+The output filename is configurable with `outputFilePrefix` in `config.json`.
 
 ### Results File (results.xlsx)
 The Excel file contains columns for each URL showing:
@@ -125,6 +145,7 @@ The Excel file contains columns for each URL showing:
 - Wait! The script might still be working
 - It can take 10-30 seconds per URL
 - Don't close the window until you see "Press any key to continue"
+- The script will open the final Excel report automatically when it finishes on Windows
 
 ### Problem: "The batch file won't open"
 **Solution:**

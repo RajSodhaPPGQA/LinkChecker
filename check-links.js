@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
 
 // =====================================
 // START TIMER
@@ -52,6 +53,8 @@ const PAGE_IDLE_TIMEOUT = Number(config.waitAfterLoad) || defaultConfig.waitAfte
 const COOKIE_CLICK_TIMEOUT = Number(config.cookieClickTimeout) || defaultConfig.cookieClickTimeout || 3000;
 const SCREENSHOT_TIMEOUT = Number(config.screenshotTimeout) || defaultConfig.screenshotTimeout || 10000;
 const BROWSER_RESTART_THRESHOLD = Number(config.browserRestartThreshold) || defaultConfig.browserRestartThreshold;
+const RETRY_COUNT = Number(config.retryCount) || defaultConfig.retryCount;
+const WARN_ON_HTTP = config.warnOnHttp !== false;
 
 // =====================================
 // TIMESTAMP FOR RUN
@@ -108,6 +111,19 @@ function log(...args) {
 if (configWarnings.length > 0) {
     configWarnings.forEach((warning) => log('CONFIG WARNING:', warning));
 }
+
+log('================================');
+log('Link Accessibility Validator v1.0');
+log('================================');
+log(`Input File: ${config.inputFile}`);
+log(`Logs Folder: ${config.logsFolder}`);
+log(`Output Prefix: ${config.outputFilePrefix}`);
+log(`Headless: ${HEADLESS}`);
+log(`Timeout: ${NAVIGATION_TIMEOUT}ms`);
+log(`Retry Count: ${RETRY_COUNT}`);
+log(`Screenshots: ${config.captureScreenshots ? 'enabled' : 'disabled'}`);
+log(`Browser restart after: ${BROWSER_RESTART_THRESHOLD} URLs`);
+log('================================');
 
 // =====================================
 // INPUT FILE
@@ -225,9 +241,17 @@ function isValidUrl(value) {
         }
     });
 
-    if (duplicateUrls.size > 0) {
-        log('INPUT WARNING: Duplicate URLs detected:', Array.from(duplicateUrls).join(', '));
+    const duplicateCount = data.length - seenUrls.size;
+    if (duplicateCount > 0) {
+        log(`WARNING: ${duplicateCount} duplicate URLs detected (${duplicateUrls.size} unique duplicate values)`);
     }
+
+    if (data.length === 0) {
+        log('WARNING: No URLs found in input file. Please add URLs to the sheet and retry.');
+        return;
+    }
+
+    const totalUrls = data.length;
 
     // =====================================
     // LAUNCH BROWSER
@@ -265,12 +289,14 @@ function isValidUrl(value) {
             });
         }
 
+        const client = row.Client || 'Unknown';
+        let url = row.URL || '';
+
         processedCount++;
 
-        // Client and URL values are already normalized when reading the sheet
-        const client = row.Client || 'Unknown';
-
-        let url = row.URL || '';
+        log('\n================================');
+        log(`[${processedCount}/${totalUrls}] Checking: ${client}`);
+        log(url);
 
         // If URL empty but client present, mark as RESTRICTED -> Empty URL
         if (!url) {
@@ -300,10 +326,6 @@ function isValidUrl(value) {
 
         const timestamp = new Date().toLocaleString();
 
-        log('\n================================');
-        log(`Checking: ${client}`);
-        log(url);
-
         let context;
 
         let page;
@@ -311,6 +333,8 @@ function isValidUrl(value) {
         let status = 'ACCESSIBLE';
 
         let details = 'Publicly Accessible';
+
+        let category = 'OK';
 
         let finalUrl = '';
 
@@ -325,7 +349,7 @@ function isValidUrl(value) {
 
             if (!url || !isValidUrl(url)) {
 
-                throw new Error('Invalid URL');
+                throw new Error(`Invalid URL format: ${url || '(blank)'}`);
             }
 
             const normalizedUrl = normalizeUrl(url);
@@ -350,7 +374,7 @@ function isValidUrl(value) {
             // RETRY LOGIC
             // =====================================
 
-            for (let attempt = 1; attempt <= 2; attempt++) {
+            for (let attempt = 1; attempt <= RETRY_COUNT; attempt++) {
 
                 try {
 
@@ -377,7 +401,7 @@ function isValidUrl(value) {
                         break;
                     }
 
-                    if (attempt === 2) {
+                    if (attempt === RETRY_COUNT) {
 
                         throw retryErr;
                     }
@@ -559,6 +583,7 @@ function isValidUrl(value) {
                 status = 'RESTRICTED';
 
                 details = 'Redirected to Login';
+                category = 'LOGIN_REDIRECT';
             }
 
             else if (accessDenied) {
@@ -566,6 +591,7 @@ function isValidUrl(value) {
                 status = 'RESTRICTED';
 
                 details = 'Access Denied';
+                category = 'ACCESS_DENIED';
             }
 
             else if (captchaDetected) {
@@ -573,6 +599,7 @@ function isValidUrl(value) {
                 status = 'RESTRICTED';
 
                 details = 'Bot Protection / CAPTCHA';
+                category = 'CAPTCHA_DETECTED';
             }
 
             else if (maintenanceDetected) {
@@ -580,6 +607,7 @@ function isValidUrl(value) {
                 status = 'RESTRICTED';
 
                 details = 'Maintenance Page';
+                category = 'MAINTENANCE_PAGE';
             }
 
             else if (pageNotFound) {
@@ -587,6 +615,7 @@ function isValidUrl(value) {
                 status = 'RESTRICTED';
 
                 details = 'Page Not Found';
+                category = 'PAGE_NOT_FOUND';
             }
 
             else if (!response) {
@@ -594,6 +623,7 @@ function isValidUrl(value) {
                 status = 'RESTRICTED';
 
                 details = 'No Response';
+                category = 'NO_RESPONSE';
             }
 
             else if (response.status() >= 400) {
@@ -601,6 +631,7 @@ function isValidUrl(value) {
                 status = 'RESTRICTED';
 
                 details = `HTTP ${response.status()}`;
+                category = `HTTP_${response.status()}`;
             }
 
             else if (!staticFileUrl && spinnerVisible) {
@@ -744,6 +775,7 @@ function isValidUrl(value) {
             FinalURL: finalUrl || url,
             Status: status,
             Details: details,
+            Category: category,
             Screenshot: screenshotPath || '',
             Warnings: warnings.join('; ')
         });
@@ -796,6 +828,7 @@ function isValidUrl(value) {
         { header: 'URL', key: 'URL', width: 50 },
         { header: 'FinalURL', key: 'FinalURL', width: 50 },
         { header: 'Status', key: 'Status', width: 18 },
+        { header: 'Category', key: 'Category', width: 18 },
         { header: 'Details', key: 'Details', width: 35 },
         { header: 'Screenshot', key: 'Screenshot', width: 40 },
         { header: 'Warnings', key: 'Warnings', width: 40 }
@@ -996,21 +1029,29 @@ function isValidUrl(value) {
     const excelFileName =
         `${config.outputFilePrefix || defaultConfig.outputFilePrefix}_${runTimestamp}.xlsx`;
 
-    await workbook.xlsx.writeFile(
-        path.join(runFolder, excelFileName)
-    );
+    const excelPath = path.join(runFolder, excelFileName);
 
-    log(`Run Folder: ${runFolder}`);
+    await workbook.xlsx.writeFile(excelPath);
+
     log('================================');
-    log('EXECUTION COMPLETED');
+    log('Execution Completed');
     log('================================');
-    log(`Run Folder: ${runFolder}`);
     log(`Total URLs: ${processedCount}`);
-    log(`ACCESSIBLE: ${accessibleCount}`);
-    log(`RESTRICTED: ${restrictedCount}`);
-    log(`Execution Started: ${new Date(executionStartTime).toLocaleString()}`);
-    log(`Execution Completed: ${new Date(executionEndTime).toLocaleString()}`);
+    log(`Accessible: ${accessibleCount}`);
+    log(`Restricted: ${restrictedCount}`);
     log(`Execution Time: ${executionMinutes}m ${executionSeconds}s`);
+    log(`Report: ${excelPath}`);
     log('================================');
 
-})();
+    if (process.platform === 'win32') {
+        exec(`start "" "${excelPath}"`, (err) => {
+            if (err) {
+                log('Failed to open report automatically:', err.message);
+            }
+        });
+    }
+
+})().catch((err) => {
+    console.error('ERROR:', err.message);
+    process.exit(1);
+});
