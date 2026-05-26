@@ -57,7 +57,7 @@ Results are saved in the `logs` folder, organized by date and time:
 logs/
   2026-05-25_16-17-26/
     execution.log (detailed execution log)
-    results.xlsx (results in Excel format)
+    results_2026-05-25_16-17-26.xlsx (results in Excel format)
     screenshots/ (browser screenshots for each URL)
 ```
 
@@ -105,7 +105,26 @@ logs/
 - **Disk Space:** 500MB+ for dependencies and results
 - **Internet:** Required to check URLs and (optionally) download Node.js
 
-## Advanced Usage
+## Configuration
+
+The tool supports a `config.json` file in the same folder as `check-links.js`.
+A default `config.json` is created automatically if one is missing.
+
+Supported options:
+- `headless` - `true` or `false`
+- `inputFile` - input Excel filename (default: `urls.xlsx`)
+- `logsFolder` - folder for log runs (default: `logs`)
+- `outputFilePrefix` - output workbook prefix (default: `results`)
+- `timeout` - page navigation timeout in milliseconds
+- `retryCount` - retry attempts for navigation failures
+- `waitAfterLoad` - wait time after initial load before inspection
+- `cookieClickTimeout` - timeout for cookie popup clicks
+- `screenshotTimeout` - timeout for screenshot capture
+- `captureScreenshots` - `true` or `false`
+- `browserRestartThreshold` - restart browser after this many URLs
+- `warnOnHttp` - log a warning for `http://` URLs
+
+### Advanced Usage
 
 ### Command Line
 If you prefer, you can also run from PowerShell or Command Prompt:
@@ -119,6 +138,10 @@ Edit `check-links.js` if you need to:
 - Modify logging format
 - Adjust timeout values
 - Add custom validation logic
+
+### Configuration File
+Edit `config.json` to change runtime behavior without editing `check-links.js`.
+If you need a quick default file, delete `config.json` and rerun `check-links.js`.
 
 ## Support & Feedback
 

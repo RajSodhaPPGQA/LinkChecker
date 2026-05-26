@@ -11,6 +11,7 @@ This folder contains everything needed to run the Link Checker as a standalone a
 - **`LinkChecker-Advanced.bat`** - Smart launcher (auto-downloads Node.js if needed)
 - **`Create-Shortcut.bat`** - Helper to create desktop shortcuts
 - **`check-links.js`** - The main application script
+- **`config.json`** - Runtime configuration file for input/output and browser behavior
 - **`package.json`** - Dependencies configuration
 - **`package-lock.json`** - Locked dependency versions
 
@@ -178,11 +179,15 @@ Edit `LinkChecker.bat`:
 - Modify messages and prompts
 
 ### Customize Behavior
-Edit `check-links.js`:
+Edit `check-links.js` or `config.json`:
 - Change screenshot options
 - Adjust timeout values
 - Modify logging format
 - Add custom validation
+- Configure input/output filenames
+- Enable or disable screenshot capture
+- Change browser restart threshold
+- Turn HTTP warnings on or off
 
 ### Add Company Branding
 Add a banner or logo to the batch file:

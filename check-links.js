@@ -10,12 +10,48 @@ const path = require('path');
 const executionStartTime = Date.now();
 
 const TOOL_VERSION = '1.0';
-const HEADLESS = process.env.HEADLESS === 'true' || process.argv.includes('--headless');
-const RESTART_AFTER = 50;
-const NAVIGATION_TIMEOUT = 60000;
-const PAGE_IDLE_TIMEOUT = 20000;
-const COOKIE_CLICK_TIMEOUT = 3000;
-const SCREENSHOT_TIMEOUT = 10000;
+
+const defaultConfig = {
+    headless: false,
+    inputFile: 'urls.xlsx',
+    logsFolder: 'logs',
+    outputFilePrefix: 'results',
+    timeout: 60000,
+    retryCount: 2,
+    waitAfterLoad: 15000,
+    cookieClickTimeout: 3000,
+    screenshotTimeout: 10000,
+    captureScreenshots: true,
+    browserRestartThreshold: 50,
+    warnOnHttp: true
+};
+
+const configPath = path.join(process.cwd(), 'config.json');
+let config = { ...defaultConfig };
+let configWarnings = [];
+
+if (fs.existsSync(configPath)) {
+    try {
+        const loadedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')) || {};
+        config = { ...defaultConfig, ...loadedConfig };
+    } catch (err) {
+        console.error('Invalid config.json syntax; using default configuration.');
+    }
+} else {
+    try {
+        fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+        configWarnings.push('No config.json found; created default config.json.');
+    } catch (err) {
+        console.error('Unable to create default config.json:', err.message);
+    }
+}
+
+const HEADLESS = process.env.HEADLESS === 'true' || process.argv.includes('--headless') || config.headless;
+const NAVIGATION_TIMEOUT = Number(config.timeout) || defaultConfig.timeout;
+const PAGE_IDLE_TIMEOUT = Number(config.waitAfterLoad) || defaultConfig.waitAfterLoad;
+const COOKIE_CLICK_TIMEOUT = Number(config.cookieClickTimeout) || defaultConfig.cookieClickTimeout || 3000;
+const SCREENSHOT_TIMEOUT = Number(config.screenshotTimeout) || defaultConfig.screenshotTimeout || 10000;
+const BROWSER_RESTART_THRESHOLD = Number(config.browserRestartThreshold) || defaultConfig.browserRestartThreshold;
 
 // =====================================
 // TIMESTAMP FOR RUN
@@ -39,7 +75,10 @@ const runTimestamp = `${now.getFullYear()}-${
 // RUN FOLDERS
 // =====================================
 
-const runFolder = path.join('logs', runTimestamp);
+const logsFolder = path.join(process.cwd(), config.logsFolder);
+const inputFile = path.join(process.cwd(), config.inputFile);
+
+const runFolder = path.join(logsFolder, runTimestamp);
 
 fs.mkdirSync(runFolder, { recursive: true });
 
@@ -66,11 +105,13 @@ function log(...args) {
     fs.appendFileSync(logFilePath, timestampedMessage + '\n');
 }
 
+if (configWarnings.length > 0) {
+    configWarnings.forEach((warning) => log('CONFIG WARNING:', warning));
+}
+
 // =====================================
 // INPUT FILE
 // =====================================
-
-const inputFile = path.join(process.cwd(), 'urls.xlsx');
 
 // =====================================
 // HELPERS
@@ -130,6 +171,14 @@ function isValidUrl(value) {
         throw new Error('No worksheet found');
     }
 
+    const inputHeaderRow = worksheet.getRow(1);
+    const clientColumnHeader = String(inputHeaderRow.getCell(1).value || '').trim().toLowerCase();
+    const urlColumnHeader = String(inputHeaderRow.getCell(2).value || '').trim().toLowerCase();
+
+    if (!clientColumnHeader.includes('client') || !urlColumnHeader.includes('url')) {
+        throw new Error('Input worksheet must include Client and URL headers in the first two columns.');
+    }
+
     const data = [];
 
     worksheet.eachRow((row, rowNumber) => {
@@ -163,6 +212,23 @@ function isValidUrl(value) {
         });
     });
 
+    const duplicateUrls = new Set();
+    const seenUrls = new Set();
+
+    data.forEach((entry) => {
+        const normalized = normalizeUrl(entry.URL || '');
+        if (!normalized) return;
+        if (seenUrls.has(normalized)) {
+            duplicateUrls.add(normalized);
+        } else {
+            seenUrls.add(normalized);
+        }
+    });
+
+    if (duplicateUrls.size > 0) {
+        log('INPUT WARNING: Duplicate URLs detected:', Array.from(duplicateUrls).join(', '));
+    }
+
     // =====================================
     // LAUNCH BROWSER
     // =====================================
@@ -187,8 +253,8 @@ function isValidUrl(value) {
 
     for (const row of data) {
 
-        // Restart browser every 50 URLs
-if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
+        // Restart browser every configured number of URLs
+        if (processedCount > 0 && processedCount % BROWSER_RESTART_THRESHOLD === 0) {
 
             log('\nRestarting browser...\n');
 
@@ -253,6 +319,8 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
         let response;
         let staticDownloadDetected = false;
 
+        const warnings = [];
+
         try {
 
             if (!url || !isValidUrl(url)) {
@@ -263,6 +331,10 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
             const normalizedUrl = normalizeUrl(url);
             const staticFileUrlPattern = /\.(pdf|png|jpg|jpeg|webp|svg)(\?.*)?$/i;
             const isDownloadableStaticFile = staticFileUrlPattern.test(normalizedUrl);
+
+            if (config.warnOnHttp && normalizedUrl.startsWith('http://')) {
+                warnings.push('HTTP URL detected; consider HTTPS');
+            }
 
             // =====================================
             // CONTEXT
@@ -555,35 +627,38 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
 
                 log('RESTRICTED:', details);
 
-                if (!screenshotFolderCreated) {
+                if (config.captureScreenshots) {
+                    if (!screenshotFolderCreated) {
 
-                    fs.mkdirSync(screenshotFolder, {
-                        recursive: true
-                    });
+                        fs.mkdirSync(screenshotFolder, {
+                            recursive: true
+                        });
 
-                    screenshotFolderCreated = true;
-                }
+                        screenshotFolderCreated = true;
+                    }
 
-                const safeFileName =
-                    `${client.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.png`;
+                    const safeFileName =
+                        `${client.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.png`;
 
-                screenshotPath = path.join(
-                    'screenshots',
-                    safeFileName
-                );
+                    screenshotPath = path.join(
+                        'screenshots',
+                        safeFileName
+                    );
 
-                try {
+                    try {
 
-                    await page.screenshot({
-                        path: path.join(runFolder, screenshotPath),
-                        fullPage: true
-                    });
+                        await page.screenshot({
+                            path: path.join(runFolder, screenshotPath),
+                            fullPage: true,
+                            timeout: SCREENSHOT_TIMEOUT
+                        });
 
-                    log('Screenshot captured');
+                        log('Screenshot captured');
 
-                } catch {
+                    } catch {
 
-                    log('Could not capture screenshot');
+                        log('Could not capture screenshot');
+                    }
                 }
 
             } else {
@@ -623,7 +698,7 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
 
             try {
 
-                if (page) {
+                if (page && config.captureScreenshots) {
 
                     await page.waitForTimeout(3000);
 
@@ -638,7 +713,7 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
                     await page.screenshot({
                         path: path.join(runFolder, screenshotPath),
                         fullPage: true,
-                        timeout: 10000
+                        timeout: SCREENSHOT_TIMEOUT
                     });
 
                     log('Screenshot captured');
@@ -669,7 +744,8 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
             FinalURL: finalUrl || url,
             Status: status,
             Details: details,
-            Screenshot: screenshotPath || ''
+            Screenshot: screenshotPath || '',
+            Warnings: warnings.join('; ')
         });
     }
 
@@ -721,7 +797,8 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
         { header: 'FinalURL', key: 'FinalURL', width: 50 },
         { header: 'Status', key: 'Status', width: 18 },
         { header: 'Details', key: 'Details', width: 35 },
-        { header: 'Screenshot', key: 'Screenshot', width: 40 }
+        { header: 'Screenshot', key: 'Screenshot', width: 40 },
+        { header: 'Warnings', key: 'Warnings', width: 40 }
     ];
 
     // =====================================
@@ -917,7 +994,7 @@ if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
     // =====================================
 
     const excelFileName =
-        `results_${runTimestamp}.xlsx`;
+        `${config.outputFilePrefix || defaultConfig.outputFilePrefix}_${runTimestamp}.xlsx`;
 
     await workbook.xlsx.writeFile(
         path.join(runFolder, excelFileName)

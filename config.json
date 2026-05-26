@@ -1,0 +1,14 @@
+{
+  "headless": false,
+  "inputFile": "urls.xlsx",
+  "logsFolder": "logs",
+  "outputFilePrefix": "results",
+  "timeout": 60000,
+  "retryCount": 2,
+  "waitAfterLoad": 15000,
+  "cookieClickTimeout": 3000,
+  "screenshotTimeout": 10000,
+  "captureScreenshots": true,
+  "browserRestartThreshold": 50,
+  "warnOnHttp": true
+}
