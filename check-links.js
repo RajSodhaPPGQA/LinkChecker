@@ -10,6 +10,13 @@ const path = require('path');
 const executionStartTime = Date.now();
 
 const TOOL_VERSION = '1.0';
+const HEADLESS = true;
+const RESTART_AFTER = 50;
+const NAVIGATION_TIMEOUT = 60000;
+const PAGE_IDLE_TIMEOUT = 20000;
+const COOKIE_CLICK_TIMEOUT = 3000;
+const SCREENSHOT_TIMEOUT = 10000;
+
 // =====================================
 // TIMESTAMP FOR RUN
 // =====================================
@@ -161,7 +168,7 @@ function isValidUrl(value) {
     // =====================================
 
     let browser = await chromium.launch({
-        headless: false
+        headless: HEADLESS
     });
 
     let processedCount = 0;
@@ -179,14 +186,14 @@ function isValidUrl(value) {
     for (const row of data) {
 
         // Restart browser every 50 URLs
-        if (processedCount > 0 && processedCount % 50 === 0) {
+if (processedCount > 0 && processedCount % RESTART_AFTER === 0) {
 
             log('\nRestarting browser...\n');
 
             await browser.close();
 
             browser = await chromium.launch({
-                headless: false
+                headless: HEADLESS
             });
         }
 
@@ -242,6 +249,7 @@ function isValidUrl(value) {
         let screenshotPath = '';
 
         let response;
+        let staticDownloadDetected = false;
 
         try {
 
@@ -251,6 +259,8 @@ function isValidUrl(value) {
             }
 
             const normalizedUrl = normalizeUrl(url);
+            const staticFileUrlPattern = /\.(pdf|png|jpg|jpeg|webp|svg)(\?.*)?$/i;
+            const isDownloadableStaticFile = staticFileUrlPattern.test(normalizedUrl);
 
             // =====================================
             // CONTEXT
@@ -273,7 +283,7 @@ function isValidUrl(value) {
                     log(`Attempt ${attempt}`);
 
                     response = await page.goto(normalizedUrl, {
-                        timeout: 60000,
+                        timeout: NAVIGATION_TIMEOUT,
                         waitUntil: 'domcontentloaded'
                     });
 
@@ -282,6 +292,16 @@ function isValidUrl(value) {
                 } catch (retryErr) {
 
                     log(`Attempt ${attempt} failed`);
+
+                    const retryMessage = String(retryErr || '').toLowerCase();
+
+                    if (isDownloadableStaticFile && retryMessage.includes('download is starting')) {
+                        log('Download file detected; treating static file as accessible');
+                        response = { status: () => 200 };
+                        finalUrl = normalizedUrl;
+                        staticDownloadDetected = true;
+                        break;
+                    }
 
                     if (attempt === 2) {
 
@@ -293,10 +313,14 @@ function isValidUrl(value) {
             }
 
             // =====================================
-            // WAIT FOR SPA
+            // WAIT FOR PAGE ACTIVITY TO SETTLE
             // =====================================
 
-            await page.waitForTimeout(15000);
+            await page.waitForLoadState('networkidle', {
+                timeout: PAGE_IDLE_TIMEOUT
+            }).catch(async () => {
+                await page.waitForTimeout(3000);
+            });
 
             // =====================================
             // ONETRUST COOKIE HANDLER
@@ -362,17 +386,24 @@ function isValidUrl(value) {
 
             await page.waitForLoadState('domcontentloaded');
 
-            finalUrl = page.url().toLowerCase();
+            let pageTitle = '';
+            let pageContent = '';
 
-            const pageTitle = (
-                await page.title()
-            ).toLowerCase();
+            if (!staticDownloadDetected) {
+                finalUrl = page.url().toLowerCase();
 
-            const pageContent = (
-                await page.content()
-            ).toLowerCase().replace(/\\s+/g, ' ');
+                pageTitle = (
+                    await page.title()
+                ).toLowerCase();
 
-            log('Final URL:', finalUrl);
+                pageContent = (
+                    await page.content()
+                ).toLowerCase().replace(/\s+/g, ' ');
+
+                log('Final URL:', finalUrl);
+            } else {
+                log('Static file download detected; skipping page metadata checks');
+            }
 
             // =====================================
             // STATIC FILE DETECTION
